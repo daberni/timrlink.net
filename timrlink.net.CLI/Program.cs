@@ -1,10 +1,16 @@
 using System;
 using System.CommandLine;
+using System.CommandLine.Builder;
+using System.CommandLine.Hosting;
 using System.CommandLine.Invocation;
+using System.CommandLine.Parsing;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Serilog;
 using timrlink.net.CLI.Actions;
@@ -18,45 +24,37 @@ namespace timrlink.net.CLI
     {
         private static async Task<int> Main(string[] args)
         {
-            Application application = new ApplicationImpl(args);
-            try
-            {
-                return await application.Run();
-            }
-            catch (Exception e)
-            {
-                application.Logger.LogError(e, e.Message);
-                return 1;
-            }
+            return await new CommandLineBuilder()
+                .UseHost(hostBuilder => hostBuilder
+                    .ConfigureAppConfiguration(configurationBuilder => configurationBuilder
+                        .AddJsonFile("config.json")
+                    )
+                    .ConfigureLogging((context, loggingBuilder) => loggingBuilder
+                        .AddSerilog(new LoggerConfiguration()
+                            .ReadFrom.Configuration(context.Configuration)
+                            .WriteTo.RollingFile("timrlink.net.{Date}.log")
+                            .WriteTo.Console(theme: Serilog.Sinks.SystemConsole.Themes.ConsoleTheme.None)
+                            .CreateLogger())
+                    )
+                    .ConfigureServices(serviceCollection => serviceCollection
+                        .AddTimrLink()
+                    )
+                )
+                .Build()
+                .InvokeAsync(args);
         }
     }
 
-    internal class ApplicationImpl : Application
+    internal class ApplicationImpl : BaseApplication, IHostedService
     {
         private readonly string[] args;
 
-        public ApplicationImpl(string[] args)
+        public ApplicationImpl(string[] args, IServiceProvider provider) : base(provider)
         {
             this.args = args;
         }
-
-        protected override void SetupConfiguration(IConfigurationBuilder configurationBuilder)
-        {
-            configurationBuilder.AddJsonFile("config.json");
-        }
-
-        protected override void ConfigureLogger(ILoggingBuilder loggingBuilder, IConfigurationRoot configuration)
-        {
-            base.ConfigureLogger(loggingBuilder, configuration);
-
-            loggingBuilder.AddSerilog(new LoggerConfiguration()
-                .ReadFrom.Configuration(configuration)
-                .WriteTo.RollingFile("timrlink.net.{Date}.log")
-                .WriteTo.Console(theme: Serilog.Sinks.SystemConsole.Themes.ConsoleTheme.None)
-                .CreateLogger());
-        }
-
-        public override async Task<int> Run()
+        
+        public async Task StartAsync(CancellationToken cancellationToken)
         {
             var filenameArgument = new Argument<string>("filename");
             filenameArgument.LegalFilePathsOnly();
@@ -66,7 +64,7 @@ namespace timrlink.net.CLI
             projectTimeCommand.AddArgument(filenameArgument);
             projectTimeCommand.Handler = CommandHandler.Create<string>(ImportProjectTime);
 
-            var updateTasks = new Option("--update", "Update existing tasks with same externalId");
+            var updateTasks = new Option<bool>("--update", "Update existing tasks with same externalId");
             updateTasks.AddAlias("-u");
             updateTasks.Argument.SetDefaultValue(true);
             updateTasks.Argument.ArgumentType = typeof(bool);
@@ -89,8 +87,12 @@ namespace timrlink.net.CLI
             };
             rootCommand.Name = "timrlink";
             rootCommand.TreatUnmatchedTokensAsErrors = true;
+            
+            await rootCommand.InvokeAsync(args);
+        }
 
-            return await rootCommand.InvokeAsync(args);
+        public async Task StopAsync(CancellationToken cancellationToken)
+        {
         }
 
         private async Task ImportProjectTime(string filename)

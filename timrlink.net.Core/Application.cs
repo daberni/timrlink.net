@@ -9,9 +9,14 @@ using timrlink.net.Core.Service;
 
 namespace timrlink.net.Core
 {
-    public abstract class Application
+    public abstract class BaseApplication
     {
         private readonly IServiceProvider serviceProvider;
+
+        protected BaseApplication(IServiceProvider serviceProvider)
+        {
+            this.serviceProvider = serviceProvider;
+        }
 
         protected ILoggerFactory LoggerFactory => GetService<ILoggerFactory>();
         protected IUserService UserService => GetService<IUserService>();
@@ -20,41 +25,6 @@ namespace timrlink.net.Core
         protected IWorkTimeService WorkTimeService => GetService<IWorkTimeService>();
         protected IProjectTimeService ProjectTimeService => GetService<IProjectTimeService>();
         protected IConfiguration Configuration => GetService<IConfiguration>();
-
-        public ILogger Logger { get; }
-
-        protected Application()
-        {
-            var confBuilder = new ConfigurationBuilder();
-            SetupConfiguration(confBuilder);
-            var configuration = confBuilder.Build();
-
-            var serviceCollection = new ServiceCollection();
-            ConfigureServices(serviceCollection);
-            serviceProvider = serviceCollection
-                .AddSingleton<IConfiguration>(configuration)
-                .AddLogging(builder => ConfigureLogger(builder, configuration))
-                .AddTimrLink()
-                .AddScoped<LoggingEndpointBehaviour>()
-                .AddScoped<LoggingMessageInspector>()
-                .BuildServiceProvider();
-
-            Logger = serviceProvider.GetService<ILogger<Application>>();
-        }
-
-        public abstract Task<int> Run();
-
-        protected virtual void SetupConfiguration(IConfigurationBuilder configurationBuilder)
-        {
-        }
-
-        protected virtual void ConfigureLogger(ILoggingBuilder loggingBuilder, IConfigurationRoot configuration)
-        {
-        }
-
-        protected virtual void ConfigureServices(IServiceCollection serviceCollection)
-        {
-        }
 
         protected T GetService<T>() => serviceProvider.GetService<T>();
     }
