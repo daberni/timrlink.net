@@ -1,6 +1,7 @@
 using System;
 using System.CommandLine;
 using System.CommandLine.Builder;
+using System.CommandLine.DragonFruit;
 using System.CommandLine.Hosting;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
@@ -15,6 +16,7 @@ using Microsoft.Extensions.Logging;
 using Serilog;
 using timrlink.net.CLI.Actions;
 using timrlink.net.Core;
+using timrlink.net.Core.Service;
 
 [assembly: InternalsVisibleTo("timrlink.net.CLI.Test")]
 
@@ -37,6 +39,7 @@ namespace timrlink.net.CLI
                             .CreateLogger())
                     )
                     .ConfigureServices(serviceCollection => serviceCollection
+                        .AddHostedService<ApplicationImpl>()
                         .AddTimrLink()
                     )
                 )
@@ -45,13 +48,21 @@ namespace timrlink.net.CLI
         }
     }
 
-    internal class ApplicationImpl : BaseApplication, IHostedService
+    internal class ApplicationImpl : IHostedService
     {
         private readonly string[] args;
+        private readonly ILoggerFactory loggerFactory;
+        private readonly IUserService userService;
+        private readonly ITaskService taskService;
+        private readonly IProjectTimeService projectTimeService;
 
-        public ApplicationImpl(string[] args, IServiceProvider provider) : base(provider)
+        public ApplicationImpl(IConfiguration configuration, ILoggerFactory loggerFactory, IUserService userService, ITaskService taskService, IProjectTimeService projectTimeService)
         {
             this.args = args;
+            this.loggerFactory = loggerFactory;
+            this.userService = userService;
+            this.taskService = taskService;
+            this.projectTimeService = projectTimeService;
         }
         
         public async Task StartAsync(CancellationToken cancellationToken)
@@ -101,10 +112,10 @@ namespace timrlink.net.CLI
             switch (Path.GetExtension(filename))
             {
                 case ".csv":
-                    action = new ProjectTimeCSVImportAction(LoggerFactory, filename, TaskService, ProjectTimeService);
+                    action = new ProjectTimeCSVImportAction(loggerFactory, filename, taskService, projectTimeService);
                     break;
                 case ".xlsx":
-                    action = new ProjectTimeXLSXImportAction(LoggerFactory, filename, TaskService, ProjectTimeService);
+                    action = new ProjectTimeXLSXImportAction(loggerFactory, filename, taskService, projectTimeService);
                     break;
                 default:
                     throw new ArgumentException($"Unsupported file type '{filename}' - use .csv or .xlsx!");
@@ -115,12 +126,12 @@ namespace timrlink.net.CLI
 
         private async Task ImportTasks(string filename, bool update)
         {
-            await new TaskImportAction(LoggerFactory, filename, update, TaskService).Execute();
+            await new TaskImportAction(loggerFactory, filename, update, taskService).Execute();
         }
 
         private async Task ExportProjectTime(string connectionString)
         {
-            await new ProjectTimeDatabaseExportAction(LoggerFactory, connectionString, UserService, TaskService, ProjectTimeService).Execute();
+            await new ProjectTimeDatabaseExportAction(loggerFactory, connectionString, userService, taskService, projectTimeService).Execute();
         }
     }
 }
